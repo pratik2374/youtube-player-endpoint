@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Player</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+    /* ── Full-screen player mode ── */
+    #fullscreen-player {
+      display: none;
+      width: 100vw;
+      height: 100vh;
+    }
+    #fullscreen-player iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+
+    /* ── Home / search mode ── */
+    #home {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+      gap: 1.5rem;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+    .logo svg { color: #ff0000; }
+    .search-row {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+      max-width: 640px;
+    }
+    input {
+      flex: 1;
+      padding: 13px 18px;
+      border-radius: 12px;
+      border: 1.5px solid #2a2a2a;
+      background: #111;
+      color: #fff;
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus { border-color: #ff0000; }
+    input::placeholder { color: #555; }
+    button {
+      padding: 13px 24px;
+      background: #ff0000;
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+    button:hover { background: #cc0000; }
+    .err { font-size: 13px; color: #ff6b6b; min-height: 18px; }
+    .hint {
+      font-size: 12px;
+      color: #444;
+      text-align: center;
+      max-width: 560px;
+      line-height: 1.7;
+    }
+    .hint code {
+      background: #1a1a1a;
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: 11.5px;
+      color: #888;
+    }
+
+    /* ── Back button overlay (shown over player) ── */
+    #back-btn {
+      display: none;
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      z-index: 100;
+      background: rgba(0,0,0,0.65);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      padding: 7px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+      transition: background 0.15s;
+    }
+    #back-btn:hover { background: rgba(0,0,0,0.9); }
+  </style>
+</head>
+<body>
+
+  <!-- Full-screen player -->
+  <div id="fullscreen-player"></div>
+
+  <!-- Back button -->
+  <button id="back-btn" onclick="goHome()">← Back</button>
+
+  <!-- Home -->
+  <div id="home">
+    <div class="logo">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.6 12 3.6 12 3.6s-7.5 0-9.4.5A3 3 0 0 0 .5 6.2C0 8.1 0 12 0 12s0 3.9.5 5.8a3 3 0 0 0 2.1 2.1C4.5 20.4 12 20.4 12 20.4s7.5 0 9.4-.5a3 3 0 0 0 2.1-2.1C24 15.9 24 12 24 12s0-3.9-.5-5.8zM9.7 15.5V8.5l6.3 3.5-6.3 3.5z"/>
+      </svg>
+      Player
+    </div>
+
+    <div class="search-row">
+      <input id="url-input" type="text" placeholder="Paste a YouTube link…"
+        onkeydown="if(event.key==='Enter') play()"
+        oninput="document.getElementById('err').textContent=''" />
+      <button onclick="play()">▶ Play</button>
+    </div>
+    <div class="err" id="err"></div>
+
+    <div class="hint">
+      Or open directly via URL:<br/>
+      <code>https://your-app.vercel.app/?url=YOUTUBE_LINK</code><br/>
+      <code>https://your-app.vercel.app/?v=VIDEO_ID</code>
+    </div>
+  </div>
+
+  <script>
+    function extractId(raw) {
+      raw = (raw || '').trim();
+      const patterns = [
+        /[?&]v=([a-zA-Z0-9_-]{11})/,
+        /youtu\.be\/([a-zA-Z0-9_-]{11})/,
+        /\/embed\/([a-zA-Z0-9_-]{11})/,
+        /\/shorts\/([a-zA-Z0-9_-]{11})/,
+        /\/live\/([a-zA-Z0-9_-]{11})/,
+      ];
+      for (const p of patterns) {
+        const m = raw.match(p);
+        if (m) return m[1];
+      }
+      if (/^[a-zA-Z0-9_-]{11}$/.test(raw)) return raw;
+      return null;
+    }
+
+    function showPlayer(id) {
+      const src = `https://www.youtube-nocookie.com/embed/${id}`
+        + `?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&disablekb=0&fs=1`;
+      document.getElementById('fullscreen-player').innerHTML =
+        `<iframe src="${src}"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowfullscreen
+          referrerpolicy="no-referrer-when-downgrade"></iframe>`;
+      document.getElementById('fullscreen-player').style.display = 'block';
+      document.getElementById('home').style.display = 'none';
+      document.getElementById('back-btn').style.display = 'block';
+      history.pushState({}, '', `?v=${id}`);
+    }
+
+    function goHome() {
+      document.getElementById('fullscreen-player').innerHTML = '';
+      document.getElementById('fullscreen-player').style.display = 'none';
+      document.getElementById('home').style.display = 'flex';
+      document.getElementById('back-btn').style.display = 'none';
+      history.pushState({}, '', '/');
+    }
+
+    function play(raw) {
+      const val = raw || document.getElementById('url-input').value;
+      const id = extractId(val);
+      if (!val.trim()) { document.getElementById('err').textContent = 'Paste a link first.'; return; }
+      if (!id) { document.getElementById('err').textContent = 'Invalid YouTube link.'; return; }
+      showPlayer(id);
+    }
+
+    // Handle URL params on load: ?v=ID or ?url=LINK
+    (function () {
+      const params = new URLSearchParams(location.search);
+      const v = params.get('v');
+      const url = params.get('url');
+      if (v && /^[a-zA-Z0-9_-]{11}$/.test(v)) { showPlayer(v); return; }
+      if (url) { play(url); }
+    })();
+  </script>
+</body>
+</html>
